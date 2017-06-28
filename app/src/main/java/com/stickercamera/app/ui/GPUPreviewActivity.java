@@ -87,8 +87,6 @@ public class GPUPreviewActivity extends CameraBaseActivity {
     private int mCurrentCameraId = 0;  //1是前置 0是后置
     private Handler handler = new Handler();
 
-    @InjectView(R.id.masking)
-    CameraGrid cameraGrid;
     @InjectView(R.id.panel_take_photo)
     View takePhotoPanel;
     @InjectView(R.id.takepicture)
@@ -145,9 +143,7 @@ public class GPUPreviewActivity extends CameraBaseActivity {
         smallImageBackgroud = BitmapFactory.decodeResource(getResources(),R.drawable.ic_launcher);
 
         //设置相机界面,照片列表,以及拍照布局的高度(保证相机预览为正方形)
-        ViewGroup.LayoutParams layout = cameraGrid.getLayoutParams();
-        layout.height = App.getApp().getScreenWidth();
-        layout = takePhotoPanel.getLayoutParams();
+        ViewGroup.LayoutParams layout = takePhotoPanel.getLayoutParams();
         layout.height = App.getApp().getScreenHeight()
                 - App.getApp().getScreenWidth()
                 - DistanceUtil.getCameraPhotoAreaHeight();
