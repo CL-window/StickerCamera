@@ -41,10 +41,14 @@ import com.stickercamera.App;
 import com.stickercamera.AppConstants;
 import com.stickercamera.app.camera.CameraBaseActivity;
 import com.stickercamera.app.camera.CameraManager;
+import com.stickercamera.app.camera.EffectService;
+import com.stickercamera.app.camera.adapter.FilterAdapter;
+import com.stickercamera.app.camera.effect.FilterEffect;
 import com.stickercamera.app.camera.ui.AlbumActivity;
 import com.stickercamera.app.camera.ui.CameraActivity;
 import com.stickercamera.app.camera.ui.PhotoProcessActivity;
 import com.stickercamera.app.camera.util.CameraHelper;
+import com.stickercamera.app.camera.util.GPUImageFilterTools;
 import com.stickercamera.app.model.PhotoItem;
 
 import java.io.ByteArrayInputStream;
@@ -59,6 +63,8 @@ import java.util.List;
 
 import butterknife.ButterKnife;
 import butterknife.InjectView;
+import it.sephiroth.android.library.widget.HListView;
+import jp.co.cyberagent.android.gpuimage.GPUImageFilter;
 import jp.co.cyberagent.android.gpuimage.GPUImageView;
 
 /**
@@ -72,9 +78,6 @@ public class GPUPreviewActivity extends CameraBaseActivity {
     private Camera.Parameters parameters = null;
     private Camera cameraInst = null;
     private Bundle bundle = null;
-    private int photoWidth = DistanceUtil.getCameraPhotoWidth();
-    private int photoNumber = 4;
-    private int photoMargin = App.getApp().dp2px(1);
     private float pointX, pointY;
     static final int FOCUS = 1;            // 聚焦
     static final int ZOOM = 2;            // 缩放
@@ -86,8 +89,6 @@ public class GPUPreviewActivity extends CameraBaseActivity {
 
     @InjectView(R.id.masking)
     CameraGrid cameraGrid;
-    @InjectView(R.id.photo_area)
-    LinearLayout photoArea;
     @InjectView(R.id.panel_take_photo)
     View takePhotoPanel;
     @InjectView(R.id.takepicture)
@@ -107,6 +108,14 @@ public class GPUPreviewActivity extends CameraBaseActivity {
 
     @InjectView(R.id.gpuimage)
     GPUImageView mGPUImageView;
+    //工具区
+    @InjectView(R.id.list_tools)
+    HListView bottomToolBar;
+    @InjectView(R.id.toolbar_area)
+    ViewGroup toolArea;
+
+    //用于预览的小图片
+    private Bitmap smallImageBackgroud;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -131,70 +140,33 @@ public class GPUPreviewActivity extends CameraBaseActivity {
         surfaceView.setLayoutParams(params);
         mGPUImageView.setLayoutParams(params);
 
+        bottomToolBar.setVisibility(View.GONE);
+
+        smallImageBackgroud = BitmapFactory.decodeResource(getResources(),R.drawable.ic_launcher);
 
         //设置相机界面,照片列表,以及拍照布局的高度(保证相机预览为正方形)
         ViewGroup.LayoutParams layout = cameraGrid.getLayoutParams();
         layout.height = App.getApp().getScreenWidth();
-        layout = photoArea.getLayoutParams();
-        layout.height = DistanceUtil.getCameraPhotoAreaHeight();
         layout = takePhotoPanel.getLayoutParams();
         layout.height = App.getApp().getScreenHeight()
                 - App.getApp().getScreenWidth()
                 - DistanceUtil.getCameraPhotoAreaHeight();
-
-        //添加系统相册内的图片
-        ArrayList<PhotoItem> sysPhotos = FileUtils.getInst().findPicsInDir(
-                FileUtils.getInst().getSystemPhotoPath());
-        int showNumber = sysPhotos.size() > photoNumber ? photoNumber
-                : sysPhotos.size();
-        for (int i = 0; i < showNumber; i++) {
-            addPhoto(sysPhotos.get(showNumber - 1 - i));
-        }
-    }
-
-    private void addPhoto(PhotoItem photoItem) {
-        ImageView photo = new ImageView(this);
-        if (StringUtils.isNotBlank(photoItem.getImageUri())) {
-            ImageLoaderUtils.displayLocalImage(photoItem.getImageUri(), photo, null);
-        } else {
-            photo.setImageResource(R.drawable.default_img);
-        }
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
-                photoWidth, photoWidth);
-        params.leftMargin = photoMargin;
-        params.rightMargin = photoMargin;
-        params.gravity = Gravity.CENTER;
-        photo.setScaleType(ImageView.ScaleType.CENTER_CROP);
-        photo.setTag(photoItem.getImageUri());
-
-        if (photoArea.getChildCount() >= photoNumber) {
-            photoArea.removeViewAt(photoArea.getChildCount() - 1);
-            photoArea.addView(photo, 0, params);
-        } else {
-            photoArea.addView(photo, 0, params);
-        }
-        photo.setOnClickListener(v -> {
-            if (v instanceof ImageView && v.getTag() instanceof String) {
-                CameraManager.getInst().processPhotoItem(GPUPreviewActivity.this,
-                        new PhotoItem((String) v.getTag(), System.currentTimeMillis()));
-            }
-        });
     }
 
     private void initEvent() {
         //拍照
         takePicture.setOnClickListener(v -> {
-            try {
-                cameraInst.takePicture(null, null, new MyPictureCallback());
-            } catch (Throwable t) {
-                t.printStackTrace();
-                toast("拍照失败，请重试！", Toast.LENGTH_LONG);
-                try {
-                    cameraInst.startPreview();
-                } catch (Throwable e) {
-
-                }
-            }
+//            try {
+//                cameraInst.takePicture(null, null, new MyPictureCallback());
+//            } catch (Throwable t) {
+//                t.printStackTrace();
+//                toast("拍照失败，请重试！", Toast.LENGTH_LONG);
+//                try {
+//                    cameraInst.startPreview();
+//                } catch (Throwable e) {
+//
+//                }
+//            }
 
         });
         //闪光灯
@@ -212,7 +184,10 @@ public class GPUPreviewActivity extends CameraBaseActivity {
             changeBtn.setOnClickListener(v -> switchCamera());
         }
         //跳转相册
-        galleryBtn.setOnClickListener(v -> startActivity(new Intent(GPUPreviewActivity.this, AlbumActivity.class)));
+        galleryBtn.setOnClickListener(v -> {
+            bottomToolBar.setVisibility(View.VISIBLE);
+            initFilterToolBar();
+        });
         //返回按钮
         backBtn.setOnClickListener(v -> finish());
         surfaceView.setOnTouchListener((v, event) -> {
@@ -275,6 +250,29 @@ public class GPUPreviewActivity extends CameraBaseActivity {
             //doNothing 防止聚焦框出现在拍照区域
         });
 
+    }
+
+    //初始化滤镜
+    private void initFilterToolBar(){
+        final List<FilterEffect> filters = EffectService.getInst().getLocalFilters();
+        final FilterAdapter adapter = new FilterAdapter(GPUPreviewActivity.this, filters,smallImageBackgroud);
+        bottomToolBar.setAdapter(adapter);
+        bottomToolBar.setOnItemClickListener(new it.sephiroth.android.library.widget.AdapterView.OnItemClickListener() {
+            @Override
+            public void onItemClick(it.sephiroth.android.library.widget.AdapterView<?> arg0, View arg1, int arg2, long arg3) {
+                if (adapter.getSelectFilter() != arg2) {
+                    adapter.setSelectFilter(arg2);
+                    GPUImageFilter filter = GPUImageFilterTools.createFilterForType(
+                            GPUPreviewActivity.this, filters.get(arg2).getType());
+                    mGPUImageView.setFilter(filter);
+                    GPUImageFilterTools.FilterAdjuster mFilterAdjuster = new GPUImageFilterTools.FilterAdjuster(filter);
+                    //可调节颜色的滤镜
+                    if (mFilterAdjuster.canAdjust()) {
+                        //mFilterAdjuster.adjust(100); 给可调节的滤镜选一个合适的值
+                    }
+                }
+            }
+        });
     }
 
     @Override
@@ -419,6 +417,7 @@ public class GPUPreviewActivity extends CameraBaseActivity {
         public void surfaceDestroyed(SurfaceHolder holder) {
             try {
                 if (cameraInst != null) {
+                    cameraInst.setPreviewCallback(null);
                     cameraInst.stopPreview();
                     cameraInst.release();
                     cameraInst = null;
@@ -436,7 +435,7 @@ public class GPUPreviewActivity extends CameraBaseActivity {
                     cameraInst = Camera.open();
                     cameraInst.setPreviewDisplay(holder);
                     initCamera();
-                    mGPUImageView.getGPUImage().setUpCamera(cameraInst);
+                    mGPUImageView.getGPUImage().setUpCamera(cameraInst, 90, false, false);
                 } catch (Throwable e) {
                     e.printStackTrace();
                 }
